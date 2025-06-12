@@ -5,66 +5,121 @@ import pandas as pd
 from datetime import datetime
 from io import BytesIO
 import base64
-import hashlib
 import os
+import hashlib
+import random
 
 # ---------------- Config ----------------
 st.set_page_config(page_title="Spanish Tracker", layout="centered")
 
-# ---------- Password Hashing Functions ----------
+# ---------------- Helper Functions ----------------
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+def get_random_pet_name():
+    pet_names = ["Luna", "Coco", "Pepito", "Churro", "Taco", "Nina", "Bambino", "Salsa"]
+    return random.choice(pet_names)
+
+# ---------------- Enhanced Login System ----------------
 def signup_or_reset():
     st.subheader("🆕 Create Account or Reset Password")
-    new_user = st.text_input("New Username")
-    new_pass = st.text_input("New Password", type="password")
-    if st.button("Submit"):
+    new_user = st.text_input("New Username", key="new_user")
+    new_pass = st.text_input("New Password", type="password", key="new_pass")
+    if st.button("Submit", key="signup_submit"):
         if new_user and new_pass:
             hashed_pass = hash_password(new_pass)
-            with open("users.txt", "a") as f:
-                f.write(f"{new_user},{hashed_pass}\n")
+            lines = []
+            if os.path.exists("users.txt"):
+                with open("users.txt", "r") as f:
+                    lines = f.readlines()
+            with open("users.txt", "w") as f:
+                user_found = False
+                for line in lines:
+                    user, _ = line.strip().split(",")
+                    if user == new_user:
+                        f.write(f"{new_user},{hashed_pass}\n")
+                        user_found = True
+                    else:
+                        f.write(line)
+                if not user_found:
+                    f.write(f"{new_user},{hashed_pass}\n")
             st.success("Account created or password reset! Please login.")
-            st.stop()
+            st.session_state.signup_mode = False
+            st.experimental_rerun()
         else:
             st.error("Both fields required.")
 
-def check_login(username, password):
-    hashed_input = hash_password(password)
-    try:
-        with open("users.txt", "r") as f:
-            for line in f:
-                stored_user, stored_hash = line.strip().split(",")
-                if stored_user == username and stored_hash == hashed_input:
-                    return True
-    except FileNotFoundError:
-        return False
-    return False
-
-# ---------- Authentication ----------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
+if "signup_mode" not in st.session_state:
+    st.session_state.signup_mode = False
+
 if not st.session_state.authenticated:
-    st.markdown("<h1 style='text-align: center'>Login to Your Spanish Tracker</h1>", unsafe_allow_html=True)
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username and password:
-            if check_login(username, password):
-                st.session_state.username = username
-                st.session_state.file = f"{username}_study_log.csv"
-                st.session_state.goal_file = f"{username}_weekly_goals.csv"
-                st.session_state.authenticated = True
-                st.success(f"Welcome back, {username}!")
-                st.experimental_rerun()
+    st.markdown("""
+        <h1 style='text-align: center'>Login to Your Spanish Tracker</h1>
+    """, unsafe_allow_html=True)
+
+    if not st.session_state.signup_mode:
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        login_clicked = st.button("Login")
+
+        if login_clicked:
+            if username and password:
+                if os.path.exists("users.txt"):
+                    hashed_input = hash_password(password)
+                    with open("users.txt", "r") as f:
+                        users = [line.strip().split(",") for line in f.readlines()]
+                    if [username, hashed_input] in users:
+                        st.session_state.username = username
+                        st.session_state.file = f"{username}_study_log.csv"
+                        st.session_state.goal_file = f"{username}_weekly_goals.csv"
+                        st.session_state.authenticated = True
+
+                        # Pet name handling
+                        pet_name_file = f"{username}_pet_name.txt"
+                        if os.path.exists(pet_name_file):
+                            with open(pet_name_file, "r") as pf:
+                                st.session_state.pet_name = pf.read().strip()
+                        else:
+                            new_name = get_random_pet_name()
+                            with open(pet_name_file, "w") as pf:
+                                pf.write(new_name)
+                            st.session_state.pet_name = new_name
+
+                        st.success(f"Welcome back, {username}!")
+                        st.experimental_rerun()
+                    else:
+                        st.error("Invalid username or password.")
+                else:
+                    st.error("No users exist yet. Please create an account.")
             else:
-                st.error("Incorrect username or password")
-        else:
-            st.error("Please enter both username and password")
-    if st.button("Create Account or Reset Password"):
+                st.error("Please enter both a username and password")
+
+        if st.button("Create Account or Reset Password"):
+            st.session_state.signup_mode = True
+            st.experimental_rerun()
+
+        st.stop()
+    else:
         signup_or_reset()
-    st.stop()
+        st.stop()
+
+# ✅ Ensure goal_file and pet_name are set if already authenticated
+if "goal_file" not in st.session_state and "username" in st.session_state:
+    st.session_state.goal_file = f"{st.session_state.username}_weekly_goals.csv"
+
+if "pet_name" not in st.session_state and "username" in st.session_state:
+    pet_name_file = f"{st.session_state.username}_pet_name.txt"
+    if os.path.exists(pet_name_file):
+        with open(pet_name_file, "r") as pf:
+            st.session_state.pet_name = pf.read().strip()
+    else:
+        new_name = get_random_pet_name()
+        with open(pet_name_file, "w") as pf:
+            pf.write(new_name)
+        st.session_state.pet_name = new_name
 
 # ---------------- Tamagotchi Style Header ----------------
 st.markdown("""
@@ -89,9 +144,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
+st.markdown(f"""
     <div class='tomigatchi-box'>
-        <h1>🐣 Spanish Tracker</h1>
+        <h1>🐣 Meet {st.session_state.pet_name}!</h1>
         <p style='text-align: center;'>Feed your Spanish pet with study time! 🌈✨</p>
     </div>
 """, unsafe_allow_html=True)
@@ -104,6 +159,7 @@ mood = st.radio("Pick your mood:", ["😊 Happy", "😫 Tired", "😎 Confident"
 st.subheader("📆 Log Your Study Session")
 with st.form("study_form", clear_on_submit=True):
     date = st.date_input("Date", datetime.today())
+    study_plan = st.text_area("📝 What are your study plans for today?", placeholder="E.g Practice past tense, watch Netflix with subtitles")
     task = st.text_area("📝 What did you study today?", placeholder="E.g. Practiced past tense, watched Netflix with subtitles")
     completed = st.checkbox("Task Completed")
     submitted = st.form_submit_button("Add Entry")
@@ -123,7 +179,7 @@ with st.form("study_form", clear_on_submit=True):
             updated = new_entry
 
         updated.to_csv(st.session_state.file, index=False)
-        st.success("Entry saved! Your Tamagotchi is happy! 🐥")
+        st.success(f"Entry saved! {st.session_state.pet_name} is happy! 🐥")
 
 # ---------------- Weekly Goals + Visual Rewards ----------------
 st.subheader("🎯 Set Your Weekly Goal")
@@ -208,6 +264,6 @@ except FileNotFoundError:
 st.markdown("""
     <hr>
     <p style='text-align: center; font-size: 0.9em; color: gray;'>
-    Made with 💕 and Python. Keep your Tamagotchi thriving! 🐾
+    Made with 💕. Keep your Tamagotchi thriving! 🐾
     </p>
 """, unsafe_allow_html=True)
